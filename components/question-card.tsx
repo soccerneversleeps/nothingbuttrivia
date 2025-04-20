@@ -61,31 +61,31 @@ export function QuestionCard({
     if (!isAnswerRevealed) {
       if (selectedAnswer === answer) {
         return `
-          bg-white/20 border-white/40 text-white
-          hover:bg-white/30 hover:border-white/60
+          bg-black/40 border-white/40 text-white
+          hover:bg-black/50 hover:border-white/60
         `
       }
       return `
-        bg-white/10 border-white/20 text-white
-        hover:bg-white/20 hover:border-white/40
+        bg-black/30 border-white/20 text-white
+        hover:bg-black/40 hover:border-white/40
       `
     }
 
     if (answer === question.correctAnswer) {
       return `
-        bg-green-500/20 border-green-500/40 text-white
+        bg-green-900/40 border-green-500/40 text-white
         shadow-[0_0_15px_rgba(34,197,94,0.3)]
       `
     }
 
     if (selectedAnswer === answer && answer !== question.correctAnswer) {
       return `
-        bg-red-500/20 border-red-500/40 text-white/70
+        bg-red-900/40 border-red-500/40 text-white
         shadow-[0_0_15px_rgba(239,68,68,0.3)]
       `
     }
 
-    return `bg-white/5 border-white/10 text-white/40`
+    return `bg-black/20 border-white/10 text-white/70`
   }
 
   return (

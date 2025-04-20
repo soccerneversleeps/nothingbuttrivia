@@ -547,18 +547,18 @@ export default function GamePageClient() {
 
         <main className="container mx-auto flex-1 flex flex-col items-center justify-center min-h-[60vh] p-4">
           {!timerStarted ? (
-            <div className="w-full max-w-md bg-white/10 backdrop-blur-md rounded-2xl p-8 shadow-lg border border-white/20 text-center">
-              <h2 className="text-3xl font-bold mb-4" style={{ fontFamily: "'Exo 2', sans-serif" }}>
+            <div className="w-full max-w-md bg-black/30 backdrop-blur-md rounded-2xl p-8 shadow-lg border border-white/20 text-center">
+              <h2 className="text-3xl font-bold mb-4 text-white" style={{ fontFamily: "'Exo 2', sans-serif" }}>
                 3-MINUTE CHALLENGE
               </h2>
-              <p className="text-white/80 text-lg mb-8">
+              <p className="text-white text-lg mb-8">
                 You have 3 minutes to score as many points as possible. Use your timeouts wisely to pause the timer!
               </p>
               <button
                 onClick={handleStartTimer}
-                className="bg-white/10 backdrop-blur-md text-white px-10 py-4 rounded-2xl font-bold text-xl 
-                         border border-white/20 hover:bg-white/20 transition-all duration-300
-                         shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]"
+                className="bg-blue-600/80 backdrop-blur-md text-white px-10 py-4 rounded-2xl font-bold text-xl 
+                         border border-blue-400/40 hover:bg-blue-500/80 transition-all duration-300
+                         shadow-[0_0_15px_rgba(59,130,246,0.3)] hover:shadow-[0_0_25px_rgba(59,130,246,0.4)]"
               >
                 START TIMER
               </button>
