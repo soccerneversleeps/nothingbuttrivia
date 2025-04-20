@@ -1,0 +1,8 @@
+README.md
+.git
+.env.local
+functions/
+firebase.json
+.firebaserc
+firestore.rules
+firestore.indexes.json 
