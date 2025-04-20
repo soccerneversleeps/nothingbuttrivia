@@ -34,26 +34,38 @@ const openai = new OpenAI({
 // Get a question for gameplay
 export const getQuestion = async (category: string, points: number): Promise<StoredQuestion | null> => {
   try {
+    console.log('Getting question for:', { category, points })
+    
+    if (!category || !points) {
+      console.error('Invalid inputs:', { category, points })
+      return null
+    }
+
     // First, try to get an existing question that hasn't been used much
-    const existingQuestion = await getExistingQuestion(category, points);
+    const existingQuestion = await getExistingQuestion(category, points)
+    console.log('Existing question found:', existingQuestion)
+    
     if (existingQuestion) {
-      return existingQuestion;
+      return existingQuestion
     }
 
     // If no suitable existing question found, generate a new one
-    return generateSportsQuestion(category, points);
+    console.log('No existing question found, generating new one')
+    return generateSportsQuestion(category, points)
   } catch (error) {
-    console.error("Error getting question:", error);
-    return null;
+    console.error("Error getting question:", error)
+    return null
   }
-};
+}
 
 // Get an existing question that hasn't been used much recently
 const getExistingQuestion = async (category: string, points: number): Promise<StoredQuestion | null> => {
   try {
+    console.log('Searching for existing question:', { category, points })
+    
     // Calculate the date 24 hours ago
-    const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    const twentyFourHoursAgo = new Date()
+    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
 
     // First, query for questions matching category and difficulty
     const q = query(
@@ -62,12 +74,13 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
       where("difficulty", "==", points),
       orderBy("usageCount"),
       limit(10)
-    );
+    )
 
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocs(q)
+    console.log('Found questions count:', snapshot.size)
     
     if (snapshot.empty) {
-      return null;
+      return null
     }
 
     // Filter in memory for usage count and last used
@@ -77,51 +90,54 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
         id: doc.id,
       } as StoredQuestion))
       .filter(q => {
-        if (!q.lastUsed) return true;
+        if (!q.lastUsed) return true
         const lastUsedDate = q.lastUsed instanceof Date ? 
           q.lastUsed : 
-          (q.lastUsed instanceof Timestamp ? q.lastUsed.toDate() : new Date(0));
-        return q.usageCount < 3 && lastUsedDate < twentyFourHoursAgo;
+          (q.lastUsed instanceof Timestamp ? q.lastUsed.toDate() : new Date(0))
+        return q.usageCount < 3 && lastUsedDate < twentyFourHoursAgo
       })
       .sort((a, b) => {
         // Sort by usage count first
         if (a.usageCount !== b.usageCount) {
-          return a.usageCount - b.usageCount;
+          return a.usageCount - b.usageCount
         }
         // Then by last used date if available
         const aDate = !a.lastUsed ? new Date(0) : 
           (a.lastUsed instanceof Date ? a.lastUsed : 
-           (a.lastUsed instanceof Timestamp ? a.lastUsed.toDate() : new Date(0)));
+           (a.lastUsed instanceof Timestamp ? a.lastUsed.toDate() : new Date(0)))
         const bDate = !b.lastUsed ? new Date(0) : 
           (b.lastUsed instanceof Date ? b.lastUsed : 
-           (b.lastUsed instanceof Timestamp ? b.lastUsed.toDate() : new Date(0)));
-        return aDate.getTime() - bDate.getTime();
-      });
+           (b.lastUsed instanceof Timestamp ? b.lastUsed.toDate() : new Date(0)))
+        return aDate.getTime() - bDate.getTime()
+      })
+
+    console.log('Eligible questions count:', eligibleQuestions.length)
 
     if (eligibleQuestions.length === 0) {
-      return null;
+      return null
     }
 
     // Get the first eligible question
-    const selectedQuestion = eligibleQuestions[0];
+    const selectedQuestion = eligibleQuestions[0]
+    console.log('Selected question:', selectedQuestion)
 
     // Update the usage count and last used timestamp
-    const now = new Date();
+    const now = new Date()
     await updateDoc(doc(db, "questions", selectedQuestion.id), {
       usageCount: (selectedQuestion.usageCount || 0) + 1,
       lastUsed: now
-    });
+    })
 
     return {
       ...selectedQuestion,
       lastUsed: now,
       usageCount: (selectedQuestion.usageCount || 0) + 1
-    };
+    }
   } catch (error) {
-    console.error("Error getting existing question:", error);
-    return null;
+    console.error("Error getting existing question:", error)
+    return null
   }
-};
+}
 
 const getDifficultyLevel = (category: string, points: number): number => {
   switch (category) {

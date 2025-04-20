@@ -100,7 +100,8 @@ export default function GamePageClient() {
     if (!gameState) return null
     try {
       const question = await getQuestion(gameState.sport, points)
-      if (question && 'text' in question) {
+      console.log('Received question:', question)
+      if (question) {
         return {
           question: question.text,
           answers: question.options,
@@ -122,6 +123,7 @@ export default function GamePageClient() {
     setSelectedAnswer(null)
     setIsAnswerRevealed(false)
     const question = await getGameQuestion(selectedPoints)
+    console.log('Starting new question:', question)
     if (question) {
       setCurrentQuestion(question)
     } else {
@@ -135,6 +137,7 @@ export default function GamePageClient() {
 
   // Handle points selection
   const handlePointsSelect = async (points: number) => {
+    console.log('Selected points:', points)
     setSelectedPoints(points)
     setIsSelectingDifficulty(false)
     await startNewQuestion()
