@@ -51,7 +51,30 @@ export const getQuestion = async (category: string, points: number): Promise<Sto
 
     // If no suitable existing question found, generate a new one
     console.log('No existing question found, generating new one')
-    return generateSportsQuestion(category, points)
+    
+    // Add retries for question generation
+    let attempts = 0
+    const maxAttempts = 3
+    let error = null
+    
+    while (attempts < maxAttempts) {
+      try {
+        const newQuestion = await generateSportsQuestion(category, points)
+        if (newQuestion) {
+          console.log('Successfully generated new question:', newQuestion)
+          return newQuestion
+        }
+        attempts++
+      } catch (e) {
+        console.error(`Attempt ${attempts + 1} failed:`, e)
+        error = e
+        attempts++
+      }
+    }
+
+    // If all attempts failed, return a fallback question
+    console.error('All attempts to generate question failed:', error)
+    return getFallbackQuestion(category, points)
   } catch (error) {
     console.error("Error getting question:", error)
     return null
@@ -63,23 +86,33 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
   try {
     console.log('Searching for existing question:', { category, points })
     
+    if (!db) {
+      console.error('Firestore not initialized')
+      return null
+    }
+
     // Calculate the date 24 hours ago
     const twentyFourHoursAgo = new Date()
     twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
 
     // First, query for questions matching category and difficulty
+    const questionsRef = collection(db, "questions")
+    console.log('Questions collection ref:', questionsRef)
+
     const q = query(
-      collection(db, "questions"),
+      questionsRef,
       where("category", "==", category),
       where("difficulty", "==", points),
       orderBy("usageCount"),
       limit(10)
     )
+    console.log('Query created:', q)
 
     const snapshot = await getDocs(q)
     console.log('Found questions count:', snapshot.size)
     
     if (snapshot.empty) {
+      console.log('No questions found in snapshot')
       return null
     }
 
@@ -114,6 +147,7 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
     console.log('Eligible questions count:', eligibleQuestions.length)
 
     if (eligibleQuestions.length === 0) {
+      console.log('No eligible questions found')
       return null
     }
 
@@ -121,17 +155,25 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
     const selectedQuestion = eligibleQuestions[0]
     console.log('Selected question:', selectedQuestion)
 
-    // Update the usage count and last used timestamp
-    const now = new Date()
-    await updateDoc(doc(db, "questions", selectedQuestion.id), {
-      usageCount: (selectedQuestion.usageCount || 0) + 1,
-      lastUsed: now
-    })
+    try {
+      // Update the usage count and last used timestamp
+      const now = new Date()
+      const questionRef = doc(db, "questions", selectedQuestion.id)
+      await updateDoc(questionRef, {
+        usageCount: (selectedQuestion.usageCount || 0) + 1,
+        lastUsed: now
+      })
+      console.log('Updated question usage count and timestamp')
 
-    return {
-      ...selectedQuestion,
-      lastUsed: now,
-      usageCount: (selectedQuestion.usageCount || 0) + 1
+      return {
+        ...selectedQuestion,
+        lastUsed: now,
+        usageCount: (selectedQuestion.usageCount || 0) + 1
+      }
+    } catch (updateError) {
+      console.error('Error updating question:', updateError)
+      // Still return the question even if update fails
+      return selectedQuestion
     }
   } catch (error) {
     console.error("Error getting existing question:", error)
@@ -443,3 +485,92 @@ const levenshteinDistance = (str1: string, str2: string): number => {
 
   return matrix[str2.length][str1.length];
 };
+
+// Fallback questions when generation fails
+const getFallbackQuestion = (category: string, points: number): StoredQuestion => {
+  const now = new Date()
+  const fallbackQuestions: Record<string, StoredQuestion[]> = {
+    basketball: [
+      {
+        id: 'fallback-1',
+        text: 'How many points is a standard field goal worth in basketball?',
+        options: ['1 point', '2 points', '3 points', '4 points'],
+        correctAnswer: '2 points',
+        explanation: 'A standard field goal in basketball is worth 2 points, while three-pointers are worth 3 points and free throws are worth 1 point.',
+        category: 'basketball',
+        difficulty: 2,
+        usageCount: 0,
+        lastUsed: null,
+        createdAt: now
+      },
+      {
+        id: 'fallback-2',
+        text: 'In basketball, how many points is a successful shot from beyond the three-point line worth?',
+        options: ['2 points', '3 points', '4 points', '5 points'],
+        correctAnswer: '3 points',
+        explanation: 'A successful shot from beyond the three-point line is worth 3 points in basketball.',
+        category: 'basketball',
+        difficulty: 3,
+        usageCount: 0,
+        lastUsed: null,
+        createdAt: now
+      }
+    ],
+    football: [
+      {
+        id: 'fallback-3',
+        text: 'How many points is a touchdown worth in American football?',
+        options: ['3 points', '6 points', '7 points', '2 points'],
+        correctAnswer: '6 points',
+        explanation: 'A touchdown in American football is worth 6 points, with the opportunity to score additional points through an extra point or two-point conversion.',
+        category: 'football',
+        difficulty: points,
+        usageCount: 0,
+        lastUsed: null,
+        createdAt: now
+      }
+    ],
+    baseball: [
+      {
+        id: 'fallback-4',
+        text: 'How many strikes make an out in baseball?',
+        options: ['2 strikes', '3 strikes', '4 strikes', '1 strike'],
+        correctAnswer: '3 strikes',
+        explanation: 'In baseball, a batter is out after 3 strikes.',
+        category: 'baseball',
+        difficulty: points,
+        usageCount: 0,
+        lastUsed: null,
+        createdAt: now
+      }
+    ],
+    soccer: [
+      {
+        id: 'fallback-5',
+        text: 'How many points is a goal worth in soccer?',
+        options: ['1 point', '2 points', '3 points', '4 points'],
+        correctAnswer: '1 point',
+        explanation: 'In soccer, each goal scored is worth 1 point.',
+        category: 'soccer',
+        difficulty: points,
+        usageCount: 0,
+        lastUsed: null,
+        createdAt: now
+      }
+    ]
+  }
+
+  const categoryQuestions = fallbackQuestions[category] || []
+  return categoryQuestions[Math.floor(Math.random() * categoryQuestions.length)] || {
+    id: 'fallback-default',
+    text: `What sport is this trivia game about?`,
+    options: ['Baseball', 'Basketball', 'Football', 'Soccer'],
+    correctAnswer: category.charAt(0).toUpperCase() + category.slice(1),
+    explanation: `This is a ${category} trivia game.`,
+    category: category,
+    difficulty: points,
+    usageCount: 0,
+    lastUsed: null,
+    createdAt: now
+  }
+}

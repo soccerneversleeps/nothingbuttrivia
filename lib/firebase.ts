@@ -1,36 +1,22 @@
 // firebase.ts
-import { initializeApp, getApps, FirebaseApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-let app: FirebaseApp | undefined;
-let firestore: any = null;
-let auth: any = null;
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBVad0qcojBUpwySAek4ihN1kcTP0_qEN4",
+  authDomain: "nothingbuttrivia-68640.firebaseapp.com",
+  projectId: "nothingbuttrivia-68640",
+  storageBucket: "nothingbuttrivia-68640.firebasestorage.app",
+  messagingSenderId: "648467137933",
+  appId: "1:648467137933:web:936a64647cdf31b3d2a9c4",
+  measurementId: "G-X6PR0VSKTE"
+};
 
-if (typeof window !== 'undefined') {
-  try {
-    const firebaseConfig = {
-      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-      measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
-    };
+// Initialize Firebase
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 
-    if (!getApps().length) {
-      app = initializeApp(firebaseConfig);
-    } else {
-      app = getApps()[0];
-    }
-
-    firestore = getFirestore(app);
-    auth = getAuth(app);
-  } catch (error) {
-    console.error("Firebase initialization error:", error);
-  }
-}
-
-export const db = firestore;
-export const firebaseAuth = auth;
+// Initialize Firestore and Auth
+export const db = getFirestore(app);
+export const firebaseAuth = getAuth(app);

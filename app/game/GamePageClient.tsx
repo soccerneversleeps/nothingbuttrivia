@@ -56,6 +56,8 @@ export default function GamePageClient() {
 
   // Game state
   const [gameState, setGameState] = useState<GameState | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState<any>(null)
   const [timeRemaining, setTimeRemaining] = useState(180) // 3 minutes for single player
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
@@ -72,21 +74,41 @@ export default function GamePageClient() {
 
   // Load game state from localStorage
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedState = localStorage.getItem("nothingButTriviaGameState")
-      if (!savedState) {
-        router.push("/")
+    const loadGameState = async () => {
+      setIsLoading(true)
+      setLoadError(null)
+
+      if (typeof window === 'undefined') {
+        setIsLoading(false)
         return
       }
 
-      const state = JSON.parse(savedState)
-      setGameState(state)
+      try {
+        const savedState = localStorage.getItem("nothingButTriviaGameState")
+        if (!savedState) {
+          console.log('No saved state found, redirecting to home')
+          router.push("/")
+          return
+        }
 
-      // Load high scores for the sport
-      if (state.sport) {
-        loadHighScores(state.sport)
+        const state = JSON.parse(savedState)
+        console.log('Loaded game state:', state)
+        setGameState(state)
+
+        // Load high scores for the sport
+        if (state.sport) {
+          await loadHighScores(state.sport)
+        }
+      } catch (error) {
+        console.error('Error loading game state:', error)
+        setLoadError('Failed to load game state. Please try again.')
+        router.push("/")
+      } finally {
+        setIsLoading(false)
       }
     }
+
+    loadGameState()
   }, [router])
 
   // Load high scores for the current sport
@@ -99,6 +121,7 @@ export default function GamePageClient() {
   const getGameQuestion = useCallback(async (points: number) => {
     if (!gameState) return null
     try {
+      console.log('Getting question with points:', points, 'for sport:', gameState.sport)
       const question = await getQuestion(gameState.sport, points)
       console.log('Received question:', question)
       if (question) {
@@ -111,6 +134,7 @@ export default function GamePageClient() {
           category: gameState.sport,
         }
       }
+      console.log('No question received')
       return null
     } catch (error) {
       console.error("Error getting question:", error)
@@ -120,27 +144,68 @@ export default function GamePageClient() {
 
   // Start a new question
   const startNewQuestion = useCallback(async () => {
-    setSelectedAnswer(null)
-    setIsAnswerRevealed(false)
-    const question = await getGameQuestion(selectedPoints)
-    console.log('Starting new question:', question)
-    if (question) {
+    try {
+      console.log('Starting new question with points:', selectedPoints)
+      setSelectedAnswer(null)
+      setIsAnswerRevealed(false)
+      
+      if (!gameState?.sport) {
+        console.error('No sport selected')
+        return null
+      }
+      
+      const question = await getGameQuestion(selectedPoints)
+      console.log('Question for new round:', question)
+      
+      if (!question) {
+        console.error('No question received from getGameQuestion')
+        return null
+      }
+      
       setCurrentQuestion(question)
-    } else {
+      return question
+    } catch (error) {
+      console.error('Error starting new question:', error)
       toast({
         title: "Error",
-        description: "Failed to get a new question. Please try again.",
+        description: "An error occurred while getting the question. Please try again.",
         variant: "destructive",
       })
+      return null
     }
-  }, [getGameQuestion, selectedPoints, toast])
+  }, [getGameQuestion, selectedPoints, gameState?.sport, toast])
 
   // Handle points selection
   const handlePointsSelect = async (points: number) => {
-    console.log('Selected points:', points)
-    setSelectedPoints(points)
-    setIsSelectingDifficulty(false)
-    await startNewQuestion()
+    try {
+      console.log('Selected points:', points)
+      setSelectedPoints(points)
+      setIsSelectingDifficulty(false)
+      
+      // Add loading state while getting question
+      setIsLoading(true)
+      const question = await startNewQuestion()
+      console.log('Question loaded:', question)
+      
+      if (!question) {
+        toast({
+          title: "Error",
+          description: "Failed to load question. Please try again.",
+          variant: "destructive",
+        })
+        setIsSelectingDifficulty(true)
+      }
+    } catch (error) {
+      console.error('Error handling points selection:', error)
+      toast({
+        title: "Error",
+        description: "Failed to start the question. Please try again.",
+        variant: "destructive",
+      })
+      setIsSelectingDifficulty(true)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // Timer effect for single player mode
@@ -303,169 +368,59 @@ export default function GamePageClient() {
     setIsSelectingDifficulty(true)
   }
 
-  // If game state is not loaded yet
-  if (!gameState) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
+  // Render loading state
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-900 to-black">
+        <Card className="w-full max-w-2xl mx-4 bg-black/30 border-white/10">
+          <CardContent className="p-6 text-center">
+            <div className="animate-pulse space-y-4">
+              <div className="h-8 w-3/4 mx-auto bg-white/10 rounded"></div>
+              <div className="h-32 bg-white/10 rounded"></div>
+              <div className="h-12 w-1/2 mx-auto bg-white/10 rounded"></div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
-  // Game over screen for single player
-  if (isGameOver && gameState.mode === "single") {
+  // Render error state
+  if (loadError) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#4169e1] to-[#4834d4] text-white relative overflow-hidden">
-        {/* Decorative Elements */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 mt-8">
-          <div className="relative">
-            <div className="absolute inset-0 bg-white rounded-full blur-md animate-pulse"></div>
-            <img
-              src={`https://img.icons8.com/ios-filled/96/ffffff/${gameState.sport === 'football' ? 'american-football' : 
-                    gameState.sport === 'soccer' ? 'football2--v1' : 
-                    gameState.sport === 'baseball' ? 'baseball' : 'basketball'}.png`}
-              alt={`${sportInfo.name} Icon`}
-              className="h-20 w-20 relative z-10 animate-bounce"
-              style={{ animationDuration: "2s" }}
-            />
-          </div>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-900 to-black">
+        <Card className="w-full max-w-2xl mx-4 bg-black/30 border-white/10">
+          <CardContent className="p-6 text-center">
+            <h2 className="text-xl font-semibold mb-4 text-red-400">Error Loading Game</h2>
+            <p className="text-white/80 mb-6">{loadError}</p>
+            <Button 
+              onClick={() => router.push("/")}
+              className="bg-white/10 hover:bg-white/20 text-white"
+            >
+              Return to Home
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
-        {/* Background Animation */}
-        <div className="absolute top-0 left-0 w-full h-full">
-          <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <path 
-              d="M0,30 Q25,35 50,30 T100,30 V100 H0 Z" 
-              fill="none"
-              stroke="rgba(255,255,255,0.1)"
-              strokeWidth="0.5"
-              className="animate-pulse"
-            />
-            <path 
-              d="M0,35 Q25,40 50,35 T100,35 V100 H0 Z" 
-              fill="none"
-              stroke="rgba(255,255,255,0.1)"
-              strokeWidth="0.5"
-              className="animate-pulse delay-100"
-            />
-          </svg>
-        </div>
-
-        <div className="relative z-10 container mx-auto flex items-center justify-center min-h-screen p-4">
-          <div className="w-full max-w-lg">
-            <div className="text-center">
-              <h1 
-                className="text-6xl font-extrabold mb-6 tracking-wider"
-                style={{ fontFamily: "'Orbitron', sans-serif" }}
-              >
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-blue-200 to-white">
-                  TIME'S UP!
-                </span>
-              </h1>
-
-              <div className="text-2xl font-bold mb-12 tracking-wide" style={{ fontFamily: "'Exo 2', sans-serif" }}>
-                Final Score: {gameState.score}
-              </div>
-
-              {/* High Scores Table */}
-              <div className="mb-12">
-                <h3 
-                  className="text-3xl font-bold mb-6 tracking-wide bg-gradient-to-r from-white via-blue-200 to-white inline-block"
-                  style={{ fontFamily: "'Orbitron', sans-serif", WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-                >
-                  HIGH SCORES
-                </h3>
-                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-[0_0_30px_rgba(255,255,255,0.1)]">
-                  {highScores.map((score, index) => (
-                    <div 
-                      key={index} 
-                      className="flex justify-between items-center py-4 px-6 rounded-xl mb-3 bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/10"
-                    >
-                      <span className="font-mono text-2xl text-white/90">{score.code}</span>
-                      <span className="font-bold text-2xl bg-gradient-to-r from-white via-blue-200 to-white inline-block"
-                            style={{ WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{score.score}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-4">
-                <button
-                  onClick={() => {
-                    const resetState = {
-                      ...gameState,
-                      score: 0,
-                      timeoutsRemaining: 3,
-                    }
-                    if (typeof window !== 'undefined') {
-                      localStorage.setItem("nothingButTriviaGameState", JSON.stringify(resetState))
-                    }
-                    setGameState(resetState)
-                    setIsGameOver(false)
-                    setTimeRemaining(180)
-                    setIsSelectingDifficulty(true)
-                  }}
-                  className="flex-1 bg-white/10 backdrop-blur-md text-white px-8 py-4 rounded-2xl font-bold text-lg
-                           border border-white/20 hover:bg-white/20 transition-all duration-300
-                           shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]"
-                  style={{ fontFamily: "'Exo 2', sans-serif" }}
-                >
-                  PLAY AGAIN
-                </button>
-                <button
-                  onClick={() => {
-                    if (typeof window !== 'undefined') {
-                      localStorage.removeItem("nothingButTriviaGameState")
-                    }
-                    router.push("/")
-                  }}
-                  className="flex-1 bg-white/5 backdrop-blur-md text-white/90 px-8 py-4 rounded-2xl font-bold text-lg
-                           border border-white/10 hover:bg-white/10 transition-all duration-300"
-                  style={{ fontFamily: "'Exo 2', sans-serif" }}
-                >
-                  EXIT TO MENU
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* High Score Dialog */}
-        <Dialog open={showHighScoreDialog} onOpenChange={setShowHighScoreDialog}>
-          <DialogContent className="bg-[#4169e1]/20 backdrop-blur-md border border-white/20 shadow-[0_0_50px_rgba(255,255,255,0.1)] rounded-2xl">
-            <DialogHeader>
-              <DialogTitle 
-                className="text-4xl text-center tracking-wider bg-gradient-to-r from-white via-blue-200 to-white inline-block"
-                style={{ fontFamily: "'Orbitron', sans-serif", WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-              >
-                ENTER YOUR CODE
-              </DialogTitle>
-              <DialogDescription 
-                className="text-white/80 text-center text-lg mt-2"
-                style={{ fontFamily: "'Exo 2', sans-serif" }}
-              >
-                Enter a 3-letter code to save your high score
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-6 pt-6">
-              <Input
-                value={playerCode}
-                onChange={(e) => setPlayerCode(e.target.value.toUpperCase())}
-                placeholder="ABC"
-                maxLength={3}
-                className="text-center text-4xl font-mono bg-white/10 border-white/20 text-white placeholder:text-white/40
-                         h-20 rounded-xl tracking-widest focus:ring-2 focus:ring-white/30 focus:border-white/30"
-              />
-              <button
-                onClick={handleSubmitHighScore}
-                className="w-full bg-white/10 backdrop-blur-md text-white px-8 py-5 rounded-xl font-bold text-xl
-                         border border-white/20 hover:bg-white/20 transition-all duration-300
-                         shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!playerCode || playerCode.length !== 3}
-                style={{ fontFamily: "'Exo 2', sans-serif" }}
-              >
-                SUBMIT SCORE
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
+  // Render game not initialized state
+  if (!gameState) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-900 to-black">
+        <Card className="w-full max-w-2xl mx-4 bg-black/30 border-white/10">
+          <CardContent className="p-6 text-center">
+            <h2 className="text-xl font-semibold mb-4 text-white">Game Not Initialized</h2>
+            <p className="text-white/80 mb-6">Please start a new game from the home page.</p>
+            <Button 
+              onClick={() => router.push("/")}
+              className="bg-white/10 hover:bg-white/20 text-white"
+            >
+              Start New Game
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -485,24 +440,6 @@ export default function GamePageClient() {
             style={{ animationDuration: "2s" }}
           />
         </div>
-      </div>
-      <div className="absolute top-0 left-0 w-full h-full">
-        <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <path 
-            d="M0,30 Q25,35 50,30 T100,30 V100 H0 Z" 
-            fill="none"
-            stroke="rgba(255,255,255,0.1)"
-            strokeWidth="0.5"
-            className="animate-pulse"
-          />
-          <path 
-            d="M0,35 Q25,40 50,35 T100,35 V100 H0 Z" 
-            fill="none"
-            stroke="rgba(255,255,255,0.1)"
-            strokeWidth="0.5"
-            className="animate-pulse delay-100"
-          />
-        </svg>
       </div>
 
       <div className="relative z-10">
@@ -592,127 +529,9 @@ export default function GamePageClient() {
             &copy; {new Date().getFullYear()} Nothing But Trivia
           </p>
         </footer>
-
-        {/* Game Over Screen */}
-        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${isGameOver ? 'opacity-100' : 'opacity-0 pointer-events-none'} transition-opacity duration-500`}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          <div className="relative z-10 w-full max-w-2xl">
-            <div className="bg-gradient-to-b from-[#4169e1]/30 to-[#4834d4]/30 backdrop-blur-md rounded-3xl p-8 border border-white/20 shadow-[0_0_50px_rgba(65,105,225,0.2)]">
-              <h2 
-                className="text-6xl font-bold text-center mb-6 tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-white via-blue-200 to-white"
-                style={{ fontFamily: "'Orbitron', sans-serif" }}
-              >
-                TIME'S UP!
-              </h2>
-              <div className="text-center mb-8">
-                <p className="text-white/80 text-xl mb-2" style={{ fontFamily: "'Exo 2', sans-serif" }}>Final Score</p>
-                <p className="text-7xl font-bold text-white mb-4" style={{ fontFamily: "'Exo 2', sans-serif" }}>
-                  {gameState.score}
-                </p>
-                <div className="w-32 h-1 bg-white/20 mx-auto rounded-full mb-4" />
-                <p className="text-white/60 text-lg" style={{ fontFamily: "'Exo 2', sans-serif" }}>
-                  {gameState.teamName}
-                </p>
-              </div>
-
-              <div className="bg-white/10 rounded-2xl p-6 mb-8 backdrop-blur-md border border-white/10">
-                <h3 
-                  className="text-2xl font-bold mb-4 text-center tracking-wide"
-                  style={{ fontFamily: "'Orbitron', sans-serif" }}
-                >
-                  HIGH SCORES
-                </h3>
-                <div className="space-y-3">
-                  {highScores.map((score, index) => (
-                    <div 
-                      key={index}
-                      className="flex justify-between items-center p-3 rounded-xl bg-white/5 border border-white/10
-                               hover:bg-white/10 transition-colors duration-300"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="text-2xl font-mono font-bold text-white/60">{index + 1}</span>
-                        <span className="text-xl font-bold tracking-wider">{score.code}</span>
-                      </div>
-                      <span className="text-2xl font-bold">{score.score}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <button
-                  onClick={() => {
-                    setIsGameOver(false)
-                    setIsSelectingDifficulty(true)
-                  }}
-                  className="flex-1 bg-white/10 backdrop-blur-md text-white px-8 py-4 rounded-2xl font-bold text-lg
-                           border border-white/20 hover:bg-white/20 transition-all duration-300
-                           shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]
-                           hover:scale-105 transform"
-                  style={{ fontFamily: "'Exo 2', sans-serif" }}
-                >
-                  PLAY AGAIN
-                </button>
-                <button
-                  onClick={() => {
-                    if (typeof window !== 'undefined') {
-                      localStorage.removeItem("nothingButTriviaGameState")
-                    }
-                    router.push("/")
-                  }}
-                  className="flex-1 bg-white/5 backdrop-blur-md text-white/90 px-8 py-4 rounded-2xl font-bold text-lg
-                           border border-white/10 hover:bg-white/10 transition-all duration-300
-                           hover:scale-105 transform"
-                  style={{ fontFamily: "'Exo 2', sans-serif" }}
-                >
-                  EXIT TO MENU
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* High Score Dialog */}
-        <Dialog open={showHighScoreDialog} onOpenChange={setShowHighScoreDialog}>
-          <DialogContent className="bg-[#4169e1]/20 backdrop-blur-md border border-white/20 shadow-[0_0_50px_rgba(255,255,255,0.1)] rounded-2xl">
-            <DialogHeader>
-              <DialogTitle 
-                className="text-4xl text-center tracking-wider bg-gradient-to-r from-white via-blue-200 to-white inline-block"
-                style={{ fontFamily: "'Orbitron', sans-serif", WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-              >
-                ENTER YOUR CODE
-              </DialogTitle>
-              <DialogDescription 
-                className="text-white/80 text-center text-lg mt-2"
-                style={{ fontFamily: "'Exo 2', sans-serif" }}
-              >
-                Enter a 3-letter code to save your high score
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-6 pt-6">
-              <Input
-                value={playerCode}
-                onChange={(e) => setPlayerCode(e.target.value.toUpperCase())}
-                placeholder="ABC"
-                maxLength={3}
-                className="text-center text-4xl font-mono bg-white/10 border-white/20 text-white placeholder:text-white/40
-                         h-20 rounded-xl tracking-widest focus:ring-2 focus:ring-white/30 focus:border-white/30"
-              />
-              <button
-                onClick={handleSubmitHighScore}
-                className="w-full bg-white/10 backdrop-blur-md text-white px-8 py-5 rounded-xl font-bold text-xl
-                         border border-white/20 hover:bg-white/20 transition-all duration-300
-                         shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.2)]
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!playerCode || playerCode.length !== 3}
-                style={{ fontFamily: "'Exo 2', sans-serif" }}
-              >
-                SUBMIT SCORE
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </div>
   )
-} 
+}
+
+ 
