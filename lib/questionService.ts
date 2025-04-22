@@ -51,10 +51,7 @@ export const getQuestion = async (category: string, points: number): Promise<Sto
       questionsRef,
       where("category", "==", category),
       where("difficulty", "==", points),
-      where("usageCount", "<", 3),
-      orderBy("usageCount"),
-      orderBy("lastUsed"),
-      limit(10)
+      where("usageCount", "<", 3)
     )
 
     const snapshot = await getDocs(q)
@@ -84,7 +81,7 @@ export const getQuestion = async (category: string, points: number): Promise<Sto
       return getFallbackQuestion(category, points)
     }
 
-    // Get a random question from eligible ones
+    // Get a random question from all eligible ones
     const selectedQuestion = eligibleQuestions[Math.floor(Math.random() * eligibleQuestions.length)]
     console.log('Selected question:', selectedQuestion)
 
