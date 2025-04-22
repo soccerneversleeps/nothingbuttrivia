@@ -8,7 +8,7 @@ import { QuestionCard } from "@/components/question-card"
 import { GameSummary } from "@/components/game-summary"
 import { DifficultySelector } from "@/components/difficulty-selector"
 import { addHighScore, getTopHighScores } from "@/lib/highScoreService"
-import { getQuestion } from "@/lib/questionService"
+import { getQuestion, preloadQuestionsForGame } from "@/lib/questionService"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -71,6 +71,7 @@ export default function GamePageClient() {
   const [playerCode, setPlayerCode] = useState("")
   const [highScores, setHighScores] = useState<HighScore[]>([])
   const [timerStarted, setTimerStarted] = useState(false)
+  const [nextQuestion, setNextQuestion] = useState<GameQuestion | null>(null)
 
   // Load game state from localStorage
   useEffect(() => {
@@ -142,52 +143,57 @@ export default function GamePageClient() {
     }
   }, [gameState])
 
-  // Start a new question
-  const startNewQuestion = useCallback(async () => {
-    try {
-      console.log('Starting new question with points:', selectedPoints)
-      setSelectedAnswer(null)
-      setIsAnswerRevealed(false)
-      
-      if (!gameState?.sport) {
-        console.error('No sport selected')
-        return null
+  // Preload next question
+  const preloadNextQuestion = useCallback(async () => {
+    if (!gameState?.sport) return
+    const question = await getGameQuestion(selectedPoints)
+    setNextQuestion(question)
+  }, [gameState?.sport, getGameQuestion, selectedPoints])
+
+  // Handle answer selection
+  const handleAnswer = (answer: string | null) => {
+    if (!currentQuestion) return
+    
+    setSelectedAnswer(answer)
+    const isCorrect = answer === currentQuestion.correctAnswer
+
+    // Update game state
+    setGameState((prev) => {
+      if (!prev) return null
+      const newState = {
+        ...prev,
+        score: isCorrect ? prev.score + selectedPoints : prev.score
       }
-      
-      const question = await getGameQuestion(selectedPoints)
-      console.log('Question for new round:', question)
-      
-      if (!question) {
-        console.error('No question received from getGameQuestion')
-        return null
-      }
-      
-      setCurrentQuestion(question)
-      return question
-    } catch (error) {
-      console.error('Error starting new question:', error)
-      toast({
-        title: "Error",
-        description: "An error occurred while getting the question. Please try again.",
-        variant: "destructive",
-      })
-      return null
+      localStorage.setItem("nothingButTriviaGameState", JSON.stringify(newState))
+      return newState
+    })
+
+    setIsAnswerRevealed(true)
+
+    // Move to next question after delay
+    if (gameState?.mode === "single") {
+      setTimeout(() => {
+        setSelectedAnswer(null)
+        setIsAnswerRevealed(false)
+        setIsSelectingDifficulty(true)
+        
+        // Clear current question to ensure clean state
+        setCurrentQuestion(null)
+      }, 1500)
     }
-  }, [getGameQuestion, selectedPoints, gameState?.sport, toast])
+  }
 
   // Handle points selection
   const handlePointsSelect = async (points: number) => {
     try {
-      console.log('Selected points:', points)
       setSelectedPoints(points)
       setIsSelectingDifficulty(false)
       
-      // Add loading state while getting question
-      setIsLoading(true)
-      const question = await startNewQuestion()
-      console.log('Question loaded:', question)
-      
-      if (!question) {
+      // Get new question
+      const question = await getGameQuestion(points)
+      if (question) {
+        setCurrentQuestion(question)
+      } else {
         toast({
           title: "Error",
           description: "Failed to load question. Please try again.",
@@ -197,14 +203,7 @@ export default function GamePageClient() {
       }
     } catch (error) {
       console.error('Error handling points selection:', error)
-      toast({
-        title: "Error",
-        description: "Failed to start the question. Please try again.",
-        variant: "destructive",
-      })
       setIsSelectingDifficulty(true)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -213,52 +212,17 @@ export default function GamePageClient() {
     let timer: NodeJS.Timeout
 
     if (gameState?.mode === "single" && timerActive && timeRemaining > 0) {
-      timer = setTimeout(() => {
+      timer = setInterval(() => {
         setTimeRemaining((prev) => prev - 1)
       }, 1000)
     } else if (timeRemaining === 0 && gameState?.mode === "single") {
-      // Time's up in single player mode
       setTimerActive(false)
       setIsGameOver(true)
       setShowHighScoreDialog(true)
     }
 
-    return () => clearTimeout(timer)
+    return () => clearInterval(timer)
   }, [timeRemaining, timerActive, gameState?.mode])
-
-  // Handle answer selection
-  const handleAnswer = (answer: string | null) => {
-    setSelectedAnswer(answer)
-
-    // Check if answer is correct
-    const isCorrect = answer === currentQuestion?.correctAnswer
-
-    // Update game state
-    setGameState((prev) => {
-      if (!prev) return null
-      const newState = { ...prev }
-
-      if (isCorrect) {
-        newState.score += selectedPoints
-      }
-
-      // Save updated state
-      if (typeof window !== 'undefined') {
-        localStorage.setItem("nothingButTriviaGameState", JSON.stringify(newState))
-      }
-      return newState
-    })
-
-    // Reveal the answer
-    setIsAnswerRevealed(true)
-
-    // Wait 1.5 seconds before next question in single player mode
-    if (gameState?.mode === "single") {
-      setTimeout(() => {
-        setIsSelectingDifficulty(true)
-      }, 1500)
-    }
-  }
 
   // Handle submitting high score
   const handleSubmitHighScore = async () => {
@@ -362,16 +326,92 @@ export default function GamePageClient() {
   }
 
   // Add timer start handler
-  const handleStartTimer = () => {
-    setTimerStarted(true)
-    setTimerActive(true)
-    setIsSelectingDifficulty(true)
+  const handleStartTimer = async () => {
+    if (!gameState?.sport) return
+
+    // Start preloading questions
+    toast({
+      title: "Loading Questions",
+      description: "Preparing your trivia questions...",
+    })
+
+    try {
+      // Preload questions in the background
+      preloadQuestionsForGame(gameState.sport)
+        .catch(error => console.error('Error preloading questions:', error))
+      
+      // Start the game immediately
+      setTimerStarted(true)
+      setTimerActive(true)
+      setIsSelectingDifficulty(true)
+    } catch (error) {
+      console.error('Error starting game:', error)
+      toast({
+        title: "Error",
+        description: "Failed to start the game. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
-  // Render loading state
+  // Main game content render
+  const renderGameContent = () => {
+    if (!gameState) return null
+
+    if (!timerStarted) {
+      return (
+        <div className="w-full max-w-md mx-auto mt-4 bg-black/30 backdrop-blur-md rounded-2xl p-8 shadow-lg border border-white/20 text-center">
+          <h2 className="text-3xl font-bold mb-4 text-white" style={{ fontFamily: "'Exo 2', sans-serif" }}>
+            3-MINUTE CHALLENGE
+          </h2>
+          <p className="text-white text-lg mb-8">
+            You have 3 minutes to score as many points as possible. Use your timeouts wisely to pause the timer!
+          </p>
+          <button
+            onClick={handleStartTimer}
+            className="bg-blue-600/80 backdrop-blur-md text-white px-10 py-4 rounded-2xl font-bold text-xl 
+                     border border-blue-400/40 hover:bg-blue-500/80 transition-all duration-300
+                     shadow-[0_0_15px_rgba(59,130,246,0.3)] hover:shadow-[0_0_25px_rgba(59,130,246,0.4)]"
+          >
+            START TIMER
+          </button>
+        </div>
+      )
+    }
+
+    if (isSelectingDifficulty) {
+      return (
+        <div className="w-full max-w-md mx-auto mt-4">
+          <DifficultySelector onSelect={handlePointsSelect} sport={gameState.sport} />
+        </div>
+      )
+    }
+
+    if (currentQuestion) {
+      return (
+        <div className="w-full max-w-2xl mx-auto mt-4">
+          <QuestionCard
+            question={currentQuestion}
+            timeRemaining={24}
+            selectedAnswer={selectedAnswer}
+            isAnswerRevealed={isAnswerRevealed}
+            isPlayerTurn={true}
+            onAnswerSelect={handleAnswer}
+            onUseTimeout={useTimeout}
+            timeoutsRemaining={gameState.timeoutsRemaining}
+            sport={gameState.sport}
+          />
+        </div>
+      )
+    }
+
+    return null
+  }
+
+  // Early return for loading and error states
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-900 to-black">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#4169e1] to-[#4834d4]">
         <Card className="w-full max-w-2xl mx-4 bg-black/30 border-white/10">
           <CardContent className="p-6 text-center">
             <div className="animate-pulse space-y-4">
@@ -486,42 +526,7 @@ export default function GamePageClient() {
         </header>
 
         <main className="container mx-auto px-4">
-          {!timerStarted ? (
-            <div className="w-full max-w-md mx-auto mt-4 bg-black/30 backdrop-blur-md rounded-2xl p-8 shadow-lg border border-white/20 text-center">
-              <h2 className="text-3xl font-bold mb-4 text-white" style={{ fontFamily: "'Exo 2', sans-serif" }}>
-                3-MINUTE CHALLENGE
-              </h2>
-              <p className="text-white text-lg mb-8">
-                You have 3 minutes to score as many points as possible. Use your timeouts wisely to pause the timer!
-              </p>
-              <button
-                onClick={handleStartTimer}
-                className="bg-blue-600/80 backdrop-blur-md text-white px-10 py-4 rounded-2xl font-bold text-xl 
-                         border border-blue-400/40 hover:bg-blue-500/80 transition-all duration-300
-                         shadow-[0_0_15px_rgba(59,130,246,0.3)] hover:shadow-[0_0_25px_rgba(59,130,246,0.4)]"
-              >
-                START TIMER
-              </button>
-            </div>
-          ) : isSelectingDifficulty ? (
-            <div className="w-full max-w-md mx-auto mt-4">
-              <DifficultySelector onSelect={handlePointsSelect} sport={gameState.sport} />
-            </div>
-          ) : currentQuestion ? (
-            <div className="w-full max-w-2xl mx-auto mt-4">
-              <QuestionCard
-                question={currentQuestion}
-                timeRemaining={24}
-                selectedAnswer={selectedAnswer}
-                isAnswerRevealed={isAnswerRevealed}
-                isPlayerTurn={true}
-                onAnswerSelect={handleAnswer}
-                onUseTimeout={useTimeout}
-                timeoutsRemaining={gameState.timeoutsRemaining}
-                sport={gameState.sport}
-              />
-            </div>
-          ) : null}
+          {renderGameContent()}
         </main>
 
         <footer className="container mx-auto py-6 text-center">

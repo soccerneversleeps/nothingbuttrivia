@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "generate-questions": "npx tsx scripts/generateQuestions.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
@@ -43,6 +44,7 @@
     "clsx": "^2.1.0",
     "cmdk": "^1.0.4",
     "date-fns": "^3.3.1",
+    "dotenv": "^16.5.0",
     "embla-carousel-react": "^8.0.0",
     "firebase": "^10.8.0",
     "input-otp": "^1.1.0",
@@ -64,11 +66,13 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/node": "^20.10.5",
+    "@types/node": "^20.17.30",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.3"
+    "ts-node": "^10.9.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
   }
 }

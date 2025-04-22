@@ -41,82 +41,31 @@ export const getQuestion = async (category: string, points: number): Promise<Sto
       return null
     }
 
-    // First, try to get an existing question that hasn't been used much
-    const existingQuestion = await getExistingQuestion(category, points)
-    console.log('Existing question found:', existingQuestion)
-    
-    if (existingQuestion) {
-      return existingQuestion
-    }
-
-    // If no suitable existing question found, generate a new one
-    console.log('No existing question found, generating new one')
-    
-    // Add retries for question generation
-    let attempts = 0
-    const maxAttempts = 3
-    let error = null
-    
-    while (attempts < maxAttempts) {
-      try {
-        const newQuestion = await generateSportsQuestion(category, points)
-        if (newQuestion) {
-          console.log('Successfully generated new question:', newQuestion)
-          return newQuestion
-        }
-        attempts++
-      } catch (e) {
-        console.error(`Attempt ${attempts + 1} failed:`, e)
-        error = e
-        attempts++
-      }
-    }
-
-    // If all attempts failed, return a fallback question
-    console.error('All attempts to generate question failed:', error)
-    return getFallbackQuestion(category, points)
-  } catch (error) {
-    console.error("Error getting question:", error)
-    return null
-  }
-}
-
-// Get an existing question that hasn't been used much recently
-const getExistingQuestion = async (category: string, points: number): Promise<StoredQuestion | null> => {
-  try {
-    console.log('Searching for existing question:', { category, points })
-    
-    if (!db) {
-      console.error('Firestore not initialized')
-      return null
-    }
-
     // Calculate the date 24 hours ago
     const twentyFourHoursAgo = new Date()
     twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24)
 
-    // First, query for questions matching category and difficulty
-    const questionsRef = collection(db, "questions")
-    console.log('Questions collection ref:', questionsRef)
-
+    // Query preloaded questions
+    const questionsRef = collection(db, "preloaded_questions")
     const q = query(
       questionsRef,
       where("category", "==", category),
       where("difficulty", "==", points),
+      where("usageCount", "<", 3),
       orderBy("usageCount"),
+      orderBy("lastUsed"),
       limit(10)
     )
-    console.log('Query created:', q)
 
     const snapshot = await getDocs(q)
     console.log('Found questions count:', snapshot.size)
     
     if (snapshot.empty) {
-      console.log('No questions found in snapshot')
-      return null
+      console.log('No preloaded questions found, falling back to generation')
+      return getFallbackQuestion(category, points)
     }
 
-    // Filter in memory for usage count and last used
+    // Filter in memory for last used
     const eligibleQuestions = snapshot.docs
       .map(doc => ({
         ...doc.data(),
@@ -127,38 +76,22 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
         const lastUsedDate = q.lastUsed instanceof Date ? 
           q.lastUsed : 
           (q.lastUsed instanceof Timestamp ? q.lastUsed.toDate() : new Date(0))
-        return q.usageCount < 3 && lastUsedDate < twentyFourHoursAgo
+        return lastUsedDate < twentyFourHoursAgo
       })
-      .sort((a, b) => {
-        // Sort by usage count first
-        if (a.usageCount !== b.usageCount) {
-          return a.usageCount - b.usageCount
-        }
-        // Then by last used date if available
-        const aDate = !a.lastUsed ? new Date(0) : 
-          (a.lastUsed instanceof Date ? a.lastUsed : 
-           (a.lastUsed instanceof Timestamp ? a.lastUsed.toDate() : new Date(0)))
-        const bDate = !b.lastUsed ? new Date(0) : 
-          (b.lastUsed instanceof Date ? b.lastUsed : 
-           (b.lastUsed instanceof Timestamp ? b.lastUsed.toDate() : new Date(0)))
-        return aDate.getTime() - bDate.getTime()
-      })
-
-    console.log('Eligible questions count:', eligibleQuestions.length)
 
     if (eligibleQuestions.length === 0) {
       console.log('No eligible questions found')
-      return null
+      return getFallbackQuestion(category, points)
     }
 
-    // Get the first eligible question
-    const selectedQuestion = eligibleQuestions[0]
+    // Get a random question from eligible ones
+    const selectedQuestion = eligibleQuestions[Math.floor(Math.random() * eligibleQuestions.length)]
     console.log('Selected question:', selectedQuestion)
 
     try {
       // Update the usage count and last used timestamp
       const now = new Date()
-      const questionRef = doc(db, "questions", selectedQuestion.id)
+      const questionRef = doc(db, "preloaded_questions", selectedQuestion.id)
       await updateDoc(questionRef, {
         usageCount: (selectedQuestion.usageCount || 0) + 1,
         lastUsed: now
@@ -172,12 +105,11 @@ const getExistingQuestion = async (category: string, points: number): Promise<St
       }
     } catch (updateError) {
       console.error('Error updating question:', updateError)
-      // Still return the question even if update fails
       return selectedQuestion
     }
   } catch (error) {
-    console.error("Error getting existing question:", error)
-    return null
+    console.error("Error getting question:", error)
+    return getFallbackQuestion(category, points)
   }
 }
 
@@ -356,12 +288,12 @@ Format the response EXACTLY as this JSON:
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo-0125",
       messages: [
-        { 
-          role: "system", 
+        {
+          role: "system",
           content: "You are a football trivia expert that creates varied, engaging questions appropriate for casual fans. For easier questions (field goals), focus on basic knowledge. For harder questions (touchdowns), test deeper understanding but avoid obscure facts."
         },
-        { 
-          role: "user", 
+        {
+          role: "user",
           content: prompt 
         }
       ],
@@ -389,8 +321,8 @@ Format the response EXACTLY as this JSON:
       
       // Add to Firebase with timestamp and metadata
       const now = new Date();
-      const docRef = await addDoc(collection(db, "questions"), {
-        ...questionData,
+    const docRef = await addDoc(collection(db, "questions"), {
+      ...questionData,
         createdAt: now,
         lastUsed: now,
         usageCount: 1,
@@ -420,7 +352,7 @@ const checkForSimilarQuestion = async (questionText: string, similarityThreshold
   try {
     // Get recent questions
     const q = query(
-      collection(db, "questions"),
+      collection(db, "questions"), 
       orderBy("createdAt", "desc"),
       limit(150)
     );
@@ -572,5 +504,51 @@ const getFallbackQuestion = (category: string, points: number): StoredQuestion =
     usageCount: 0,
     lastUsed: null,
     createdAt: now
+  }
+}
+
+// Preload questions for a game session
+export const preloadQuestionsForGame = async (category: string): Promise<void> => {
+  try {
+    console.log('Preloading questions for category:', category)
+    
+    // Create batches of questions for different point values
+    const pointValues = category === 'basketball' ? [2, 3] : 
+                       category === 'football' ? [3, 6] :
+                       category === 'baseball' ? [1, 2, 3, 4] : [1]
+    
+    // Number of questions to preload for each point value
+    const questionsPerPointValue = 15
+
+    // Create promises for all question generation tasks
+    const generationPromises = pointValues.flatMap(points => 
+      Array(questionsPerPointValue).fill(null).map(async () => {
+        try {
+          const question = await generateSportsQuestion(category, points)
+          return question
+        } catch (error) {
+          console.error(`Failed to generate question for ${points} points:`, error)
+          return null
+        }
+      })
+    )
+
+    // Execute all promises in parallel with a concurrency limit of 3
+    const chunkSize = 3
+    const results = []
+    for (let i = 0; i < generationPromises.length; i += chunkSize) {
+      const chunk = generationPromises.slice(i, i + chunkSize)
+      const chunkResults = await Promise.all(chunk)
+      results.push(...chunkResults)
+      // Small delay between chunks to avoid rate limiting
+      if (i + chunkSize < generationPromises.length) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
+    const successfulQuestions = results.filter(q => q !== null)
+    console.log(`Successfully preloaded ${successfulQuestions.length} questions`)
+  } catch (error) {
+    console.error('Error preloading questions:', error)
   }
 }

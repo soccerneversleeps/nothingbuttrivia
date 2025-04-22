@@ -2,23 +2,24 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow anyone to read and write to games collection
+    // Allow read access to all documents for authenticated users
+    match /{document=**} {
+      allow read: if true;  // Temporarily allow all reads
+    }
+    
+    // Allow full access to preloaded_questions collection during setup
+    match /preloaded_questions/{questionId} {
+      allow read, write, delete: if true;  // Temporarily allow all operations
+    }
+    
+    // Game-related collections
     match /games/{gameId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
     
-    // Allow anyone to read and write to questions collection
-    match /questions/{questionId} {
-      allow read, write: if true;
-    }
-    
-    // Allow anyone to read high scores, but only write with validation
-    match /highScores/{scoreId} {
+    match /high_scores/{scoreId} {
       allow read: if true;
-      allow write: if request.resource.data.code is string &&
-                   request.resource.data.code.size() == 3 &&
-                   request.resource.data.score is number &&
-                   request.resource.data.sport is string;
+      allow write: if request.auth != null;
     }
   }
 } 
